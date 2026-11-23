@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twenty-One Duel — a card duel against the house</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    background: radial-gradient(ellipse at 50% 35%, #14663c 0%, #0b4426 55%, #062d18 100%);
+    color: #f5ecd7; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 18px 12px 26px;
+  }
+  h1 {
+    font-size: 40px; letter-spacing: 2px; color: #f7c948;
+    text-shadow: 0 2px 0 #8a5a00, 0 4px 14px rgba(0,0,0,.55); text-align: center;
+  }
+  .tag { text-align: center; color: #cfe6d2; font-style: italic; margin: 4px 0 12px; font-size: 16px; }
+  .scorebar {
+    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px;
+  }
+  .chip {
+    background: rgba(0,0,0,.38); border: 1px solid rgba(247,201,72,.55); border-radius: 999px;
+    padding: 6px 16px; font-size: 16px; letter-spacing: .4px;
+  }
+  .chip b { color: #f7c948; }
+  .table {
+    width: min(880px, 96vw); background: rgba(0,0,0,.22);
+    border: 2px solid rgba(247,201,72,.35); border-radius: 22px; padding: 18px 20px 14px;
+    box-shadow: inset 0 0 60px rgba(0,0,0,.45);
+  }
+  .seat { min-height: 148px; }
+  .seat h2 { font-size: 17px; letter-spacing: 1.5px; color: #ffe9a8; text-transform: uppercase; }
+  .seat .total { color: #cfe6d2; font-size: 15px; margin-left: 8px; text-transform: none; letter-spacing: 0; }
+  .hand { display: flex; gap: 10px; margin-top: 10px; min-height: 104px; flex-wrap: wrap; }
+  .card {
+    width: 72px; height: 102px; border-radius: 9px; background: #fffdf5; color: #1c1c1c;
+    box-shadow: 0 4px 10px rgba(0,0,0,.45); position: relative; padding: 6px 8px;
+    font-family: 'Trebuchet MS', Verdana, sans-serif;
+  }
+  .card .rank { font-size: 21px; font-weight: 700; line-height: 1; }
+  .card .suit { font-size: 19px; line-height: 1.15; }
+  .card .big { position: absolute; right: 7px; bottom: 3px; font-size: 30px; opacity: .9; }
+  .card.red { color: #c2262f; }
+  .card.back {
+    background: repeating-linear-gradient(45deg, #7a1622 0 8px, #93202e 8px 16px);
+    border: 3px solid #f5ecd7;
+  }
+  .msg {
+    text-align: center; font-size: 21px; min-height: 30px; margin: 10px 0 4px; color: #ffe9a8;
+  }
+  .controls { display: flex; gap: 12px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+  button {
+    font-family: inherit; font-size: 18px; letter-spacing: .6px; cursor: pointer;
+    padding: 10px 26px; border-radius: 999px; border: 1px solid #8a5a00;
+    background: linear-gradient(#ffd968, #e8a91c); color: #3a2400; font-weight: 700;
+    box-shadow: 0 3px 8px rgba(0,0,0,.4);
+  }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:disabled { opacity: .38; cursor: default; }
+  button.ghost { background: rgba(0,0,0,.35); color: #f5ecd7; border-color: rgba(247,201,72,.6); }
+  .rules { margin-top: 14px; font-size: 13.5px; color: #b9d6bf; text-align: center; max-width: 640px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <h1>TWENTY-ONE DUEL</h1>
+  <p class="tag">Beat the dealer to 21. Bust and you lose the hand — closest to 21 takes the pot.</p>
+
+  <div class="scorebar">
+    <span class="chip">Round <b id="round">1</b></span>
+    <span class="chip">Your chips <b id="chips">100</b></span>
+    <span class="chip">Hands won <b id="won">0</b> — <b id="lost">0</b></span>
+    <span class="chip">Win streak <b id="streak">0</b></span>
+    <span class="chip">Bet <b>10</b></span>
+  </div>
+
+  <div class="table">
+    <div class="seat">
+      <h2>Dealer <span class="total" id="dealerTotal"></span></h2>
+      <div class="hand" id="dealerHand"></div>
+    </div>
+    <div class="msg" id="msg">Press Deal to start the hand.</div>
+    <div class="seat">
+      <h2>You <span class="total" id="playerTotal"></span></h2>
+      <div class="hand" id="playerHand"></div>
+    </div>
+    <div class="controls">
+      <button id="dealBtn">Deal</button>
+      <button id="hitBtn" disabled>Hit</button>
+      <button id="standBtn" disabled>Stand</button>
+      <button id="nextBtn" class="ghost" disabled>Next hand</button>
+    </div>
+  </div>
+
+  <p class="rules">How to play: you and the dealer each get two cards. Number cards are face value,
+  face cards count 10, an ace counts 11 or 1 — whichever helps you. Hit to draw another card,
+  Stand to hold. The dealer draws until 17. Over 21 is a bust and loses at once. Win a hand to
+  take the 10-chip bet; a tie pushes and your bet comes back. Every third win in a row pays a
+  streak bonus of 10 more chips. Keys: D deal, H hit, S stand, N next hand. Run out of chips
+  and the duel is over.</p>
+
+<script>
+'use strict';
+// Deterministic RNG for screenshot states: ?seed=n picks a fixed deck order.
+var params = new URLSearchParams(location.search);
+var seed = parseInt(params.get('seed') || '1', 10) || 1;
+var rngState = seed >>> 0;
+function rnd() { // mulberry32
+  rngState = (rngState + 0x6D2B79F5) >>> 0;
+  var t = rngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+var SUITS = [ ['♠', false], ['♥', true], ['♦', true], ['♣', false] ];
+var RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+var BET = 10;
+
+var deck = [], player = [], dealer = [], chips = 100, round = 1, won = 0, lost = 0, streak = 0;
+var phase = 'idle'; // idle | player | done
+var dealerHidden = true;
+
+function buildDeck() {
+  deck = [];
+  for (var s = 0; s < 4; s++) for (var r = 0; r < 13; r++)
+    deck.push({ rank: RANKS[r], suit: SUITS[s][0], red: SUITS[s][1] });
+  for (var i = deck.length - 1; i > 0; i--) {
+    var j = Math.floor(rnd() * (i + 1)), tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
+  }
+}
+function cardValue(rank) { return rank === 'A' ? 11 : ('KQJ'.indexOf(rank) >= 0 ? 10 : parseInt(rank, 10)); }
+function handTotal(hand) {
+  var total = 0, aces = 0;
+  hand.forEach(function (c) { total += cardValue(c.rank); if (c.rank === 'A') aces++; });
+  while (total > 21 && aces > 0) { total -= 10; aces--; }
+  return total;
+}
+function cardEl(card, faceDown) {
+  var d = document.createElement('div');
+  if (faceDown) { d.className = 'card back'; return d; }
+  d.className = 'card' + (card.red ? ' red' : '');
+  d.innerHTML = '<div class="rank">' + card.rank + '</div><div class="suit">' + card.suit +
+    '</div><div class="big">' + card.suit + '</div>';
+  return d;
+}
+function render() {
+  var dh = document.getElementById('dealerHand'), ph = document.getElementById('playerHand');
+  dh.innerHTML = ''; ph.innerHTML = '';
+  dealer.forEach(function (c, i) { dh.appendChild(cardEl(c, dealerHidden && i === 1)); });
+  player.forEach(function (c) { ph.appendChild(cardEl(c, false)); });
+  document.getElementById('dealerTotal').textContent = dealer.length === 0 ? '' :
+    (dealerHidden ? 'shows ' + handTotal([dealer[0]]) : 'has ' + handTotal(dealer));
+  document.getElementById('playerTotal').textContent = player.length === 0 ? '' : 'has ' + handTotal(player);
+  document.getElementById('chips').textContent = chips;
+  document.getElementById('round').textContent = round;
+  document.getElementById('won').textContent = won;
+  document.getElementById('lost').textContent = lost;
+  document.getElementById('streak').textContent = streak;
+  document.getElementById('dealBtn').disabled = phase !== 'idle';
+  document.getElementById('hitBtn').disabled = phase !== 'player';
+  document.getElementById('standBtn').disabled = phase !== 'player';
+  document.getElementById('nextBtn').disabled = phase !== 'done';
+}
+function say(text) { document.getElementById('msg').textContent = text; }
+
+function deal() {
+  if (chips < BET) { say('Out of chips — the duel is over. Reload to play again.'); return; }
+  buildDeck();
+  player = [deck.pop(), deck.pop()];
+  dealer = [deck.pop(), deck.pop()];
+  dealerHidden = true; phase = 'player';
+  render();
+  if (handTotal(player) === 21) { say('Twenty-one on the deal! Stand to lock it in.'); }
+  else say('Your move: Hit for another card, or Stand.');
+}
+function settle(winner, text) { // winner: 'you' | 'dealer' | 'push'
+  if (winner === 'you') {
+    won++; streak++; chips += BET;
+    if (streak % 3 === 0) { chips += BET; text += ' Three in a row — streak bonus of ' + BET + ' chips!'; }
+  } else if (winner === 'dealer') { lost++; streak = 0; chips -= BET; }
+  phase = 'done';
+  finish(text);
+}
+function hit() {
+  player.push(deck.pop());
+  var t = handTotal(player);
+  if (t > 21) { render(); settle('dealer', 'Bust with ' + t + ' — the dealer takes the hand.'); }
+  else if (t === 21) { stand(); }
+  else { render(); say('You have ' + t + '. Hit or Stand?'); }
+}
+function stand() {
+  dealerHidden = false;
+  while (handTotal(dealer) < 17) dealer.push(deck.pop());
+  var p = handTotal(player), d = handTotal(dealer);
+  if (d > 21) settle('you', 'Dealer busts with ' + d + ' — you win the hand!');
+  else if (p > d) settle('you', 'You win, ' + p + ' against ' + d + '.');
+  else if (p < d) settle('dealer', 'Dealer wins, ' + d + ' against your ' + p + '.');
+  else settle('push', 'A push at ' + p + ' — your bet comes back.');
+}
+function finish(text) { render(); say(text); }
+
+document.getElementById('dealBtn').addEventListener('click', deal);
+document.getElementById('hitBtn').addEventListener('click', hit);
+document.getElementById('standBtn').addEventListener('click', stand);
+document.getElementById('nextBtn').addEventListener('click', function () {
+  round++; player = []; dealer = []; phase = 'idle'; render(); say('Press Deal to start the hand.');
+});
+document.addEventListener('keydown', function (e) {
+  var k = e.key.toLowerCase();
+  if (k === 'd' && phase === 'idle') deal();
+  else if (k === 'h' && phase === 'player') hit();
+  else if (k === 's' && phase === 'player') stand();
+  else if (k === 'n' && phase === 'done') document.getElementById('nextBtn').click();
+});
+
+// Screenshot states: ?shot=start|play|end renders a fixed, good-looking table.
+var shot = params.get('shot');
+if (shot === 'play' || shot === 'end') {
+  deal();
+  hit(); // a third card on the table for the play frame
+  if (shot === 'end') stand();
+} else {
+  render();
+}
+</script>
+</body>
+</html>
